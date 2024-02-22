@@ -54,12 +54,12 @@ class DatabaseOperations:
                 credential = Credential(username=username, password=password)
                 session.add(credential)
             session.commit()
-            session.close()
+            
 
     def load_credentials(self, username: str) -> Union[tuple, None]:
         with self.Session() as session:
             credential = session.query(Credential).filter_by(username=username).first()
-            session.close()
+            
             if credential:
                 logger.info(f"Credentials loaded for user: {username}")
                 return credential.username, credential.password
@@ -77,13 +77,13 @@ class DatabaseOperations:
                 session_data = SessionData(username=username, session=pickled_cookies)
                 session.add(session_data)
             session.commit()
-            session.close()
+            
             logger.info(f"Cookies saved for user: {username}")
 
     def load_cookies(self, username: str) -> Union[dict, None]:
         with self.Session() as session:
             session_data = session.query(SessionData).filter_by(username=username).first()
-            session.close()
+            
             if session_data:
                 cookies = pickle.loads(session_data.session)
                 logger.info(f"Cookies loaded for user: {username}")
@@ -101,14 +101,14 @@ class DatabaseOperations:
                 secret_key_entry = SecretKey(username=username, secret_key=secret_key)
                 session.add(secret_key_entry)
             session.commit()
-            session.close()
+            
             logger.info(f"Secret key inserted for user: {username}")
 
     def del_session(self, username: str):
         with self.Session() as session:
             session_data = session.query(SessionData).filter_by(username=username).delete()
             session.commit()
-            session.close()
+            
             if session_data:
                 logger.info(f"Session deleted for user: {username}")
             else:
@@ -119,7 +119,7 @@ class DatabaseOperations:
             subquery = session.query(JsonData.id).order_by(JsonData.id.desc()).limit(3).subquery()
             session.query(JsonData).filter(~JsonData.id.in_(subquery)).delete(synchronize_session=False)
             session.commit()
-            session.close()
+            
             logger.info("Maintained the last 3 timestamps in json_data table")
 
     def save_json_data(self, data):
@@ -127,7 +127,7 @@ class DatabaseOperations:
             json_data = JsonData(timestamp=datetime.now().isoformat(), data=data)
             session.add(json_data)
             session.commit()
-            session.close()
+    
             logger.info("JSON data saved with current timestamp")
         
     def get_secret_key(self, username: str) -> str:
