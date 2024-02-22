@@ -1,10 +1,9 @@
 '''
 PHUB core module.
 '''
-
+import os
 import time
-import logging
-
+import pyotp
 import requests
 from functools import cached_property
 
@@ -12,20 +11,22 @@ from . import utils
 from . import consts
 from . import errors
 from . import locals
+from .consts import logger
+from .database import DatabaseOperations
 
 from .modules import parser
 
 from .objects import (Param, NO_PARAM, Video, User,
                       Account, Query, queries, Playlist)
 
-logger = logging.getLogger(__name__)
+
 
 class Client:
     '''
     Represents a client capable of handling requests
     with Pornhub.
     '''
-    
+    @logger.catch
     def __init__(self,
                  username: str = None,
                  password: str = None,
@@ -33,7 +34,8 @@ class Client:
                  language: str = 'en,en-US',
                  delay: int = 0,
                  proxies: dict = None,
-                 login: bool = True) -> None:
+                 login: bool = True,
+                 two_factor_token: str = None) -> None:
         '''
         Initialise a new client.
         
@@ -44,6 +46,7 @@ class Client:
             delay  (float): Minimum delay between requests.
             proxies (dict): Dictionary of proxies for the requests.
             login   (bool): Whether to automatically log in after initialization.
+            two_factor_token (str): Optional two-factor token.
         '''
         
         logger.debug('Initialised new Client %s', self)
@@ -53,9 +56,10 @@ class Client:
         
         self.proxies = proxies
         self.language = {'Accept-Language': language}
-        self.credentials = {'username': username,
-                            'password': password}
-        
+        self.credentials = {
+            'username': username,
+            'password': password,
+        } 
         self.delay = delay
         self.start_delay = False
         
@@ -63,6 +67,14 @@ class Client:
         self.logged = False
         self.account = Account(self)
         logger.debug('Connected account to client %s', self.account)
+        
+        # Database operations istantiation, if no db exists it will be created
+        if username and password:
+            users_dir = os.path.join(consts.CWD, 'users')
+            os.makedirs(users_dir, exist_ok=True)
+            db_path = os.path.join(users_dir, f"{username}.db")
+            db_url = 'sqlite:///' + db_path.replace('\\', '/')
+            self.db_ops = DatabaseOperations(db_url)
         
         # Automatic login
         if login and self.account:
@@ -108,7 +120,7 @@ class Client:
             requests.Response: The fetched response.
         '''
         
-        logger.log(logging.DEBUG if silent else logging.INFO, 'Making call %s', func or '/')
+        logger.log("DEBUG" if silent else "WARNING", f'Making call to {func or "/"}')
         
         # Delay
         if self.start_delay:
@@ -144,7 +156,7 @@ class Client:
                 break
             
             except Exception as err:
-                logger.log(logging.DEBUG if silent else logging.WARNING,
+                logger.log("DEBUG" if silent else "WARNING",
                            f'Call failed: {repr(err)}. Retrying (attempt {i + 1}/{consts.MAX_CALL_RETRIES})')
                 time.sleep(consts.MAX_CALL_TIMEOUT)
                 continue
@@ -188,8 +200,41 @@ class Client:
         success = int(data.get('success'))
         message = data.get('message')
         
+        if success == 1:
+            logger.info('Successfully logged in')
+            self.logged = True
+            return True
+        elif success == 0 and data.get('autoLoginParameter'):
+            # Handle 2FA
+            token2 = data.get('autoLoginParameter')
+            authy_id = data.get('authyId')
+            verification_code = self.generate_otp(self.credentials['username'])  
+
+            payload_2fa = {
+                "authy_id": authy_id,
+                "token": base_token,
+                "token2": token2,
+                "username": self.credentials['username'],
+                "verification_code": verification_code,
+                "verification_modal": "1"
+            }
+
+            response_2fa = self.call('front/authenticate', method='POST', data=payload_2fa)
+            logger.info(f'2FA response: {response_2fa.text}')
+
+            # Parse 2FA response
+            data_2fa = response_2fa.json()
+            if int(data_2fa.get('success')) == 1:
+                logger.info('Successfully logged in with 2FA')
+                self.logged = True
+                return True
+            else:
+                if throw:
+                    logger.error('Login with 2FA failed')
+                    raise errors.LoginFailed('2FA authentication failed')
+        
         if throw and not success:
-            logger.error('Login failed: Received error: %s', message)
+            logger.error(f'Login failed: Received error: {message}')
             raise errors.LoginFailed(message)
         
         # Reset token
@@ -328,6 +373,75 @@ class Client:
             params |= Param('age2', age[1])
         
         return queries.UserQuery(self, 'user/search', params)
+    
+    def time_remaining_till_next_interval(self, timestep=30) -> int:
+        """
+        Calculate the time remaining (in seconds) until the next TOTP interval starts.
+
+        Args:
+        - timestep (int): The time step for TOTP, typically 30 seconds.
+
+        Returns:
+        - int: The number of seconds remaining.
+        """
+        elapsed_time = int(time.time()) % timestep
+        return timestep - elapsed_time
+
+
+    def generate_otp(self, username: str, timestep=30, wait_threshold=3) -> str:
+        
+        """
+        Generate a TOTP for the given user.
+
+        Raises:
+            ValueError: If no secret key is found for the user.
+
+        Returns:
+            str: The generated OTP.
+        """
+        
+        # Retrieve the remaining time until the next TOTP interval
+        remaining_time = self.time_remaining_till_next_interval(timestep)
+
+        # Wait until the next interval if necessary
+        if remaining_time <= wait_threshold:
+            time.sleep(remaining_time + 1)
+            
+        
+        # Retrieve the secret key from the database
+        secret_key = self.db_ops.get_secret_key(username)
+        if secret_key is None:
+            raise ValueError("No secret key found for user")
+
+        # Generate the OTP using the secret key
+        totp = pyotp.TOTP(secret_key, interval=timestep)
+        return totp.now()
+    
+    def credentials_to_db(self, username: str, password: str, secret_key: str) -> None:
+        """
+        Adds or updates the credentials and secret key for a user in the database.
+
+        Args:
+            username (str): The username of the user.
+            password (str): The password for the user.
+            secret_key (str): The secret key for the user.
+        """
+        # Check if the database operations instance is available
+        if not hasattr(self, 'db_ops'):
+            logger.error("Database operations instance is not available.")
+            return
+
+        try:
+            # Save the credentials using the DatabaseOperations instance
+            self.db_ops.save_credentials(username, password)
+            logger.info(f"Credentials for user '{username}' have been added/updated successfully.")
+
+            # Save the secret key using the DatabaseOperations instance
+            self.db_ops.insert_secret_key(username, secret_key)
+            logger.info(f"Secret key for user '{username}' has been added/updated successfully.")
+        except Exception as e:
+            logger.error(f"Failed to add/update credentials and secret key for user '{username}'. Error: {e}")
+
 
     def _clear_granted_token(self) -> None:
         '''
@@ -349,5 +463,6 @@ class Client:
 
         page = self.call('').text
         return consts.re.get_token(page)
+    
 
 # EOF

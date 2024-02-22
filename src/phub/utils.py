@@ -4,13 +4,13 @@ PHUB utilities.
 
 import math
 import json
-import logging
 import requests
 from typing import Generator, Iterable, Iterator
 
 from . import consts, locals, errors
+from .consts import logger
 
-logger = logging.getLogger(__name__)
+
 
 # Named constants for least_factors
 INCREMENT = 30
@@ -292,5 +292,20 @@ def head(client: object, url: str) -> str | bool:
     if res.ok and res.url.endswith(url):
         return res.url
     return False
+
+
+def catch_all_exceptions(cls):
+    """
+    Catch all exceptions for the class methods by wrapping them in logger.catch
+    This is mainly for debugging purposes.
+
+    Returns:
+        cls: Class with all methods wrapped in logger.catch
+    """
+    for name, method in cls.__dict__.items():
+        if callable(method):
+            setattr(cls, name, logger.catch(method))
+    return cls
+
 
 # EOF

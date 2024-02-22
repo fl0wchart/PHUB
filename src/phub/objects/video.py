@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import random
-import logging
 from functools import cached_property
 from datetime import datetime, timedelta
 from typing import (TYPE_CHECKING, Iterator, Literal,
@@ -18,7 +17,7 @@ if TYPE_CHECKING:
     from ..core import Client
     from ..locals import Quality, Category
 
-logger = logging.getLogger(__name__)
+from ..consts import logger
 
 
 class Video:

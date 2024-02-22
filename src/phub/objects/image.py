@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import os
-import logging
 from typing import TYPE_CHECKING, Literal
 
 from .. import utils
@@ -10,8 +9,7 @@ if TYPE_CHECKING:
     from ..core import Client
 
 
-logger = logging.getLogger(__name__)
-
+from ..consts import logger
 
 class Image:
     '''

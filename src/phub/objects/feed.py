@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from functools import cached_property
 from typing import TYPE_CHECKING, Callable, Iterator
 
@@ -11,8 +10,7 @@ if TYPE_CHECKING:
     from ..core import Client
     from ..locals import Section
 
-logger = logging.getLogger(__name__)
-
+from ..consts import logger
 
 class Feed:
     '''

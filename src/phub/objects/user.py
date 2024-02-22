@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from functools import cached_property
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Self, Literal
@@ -14,7 +13,7 @@ if TYPE_CHECKING:
     from . import Video, Image
     from . import queries
 
-logger = logging.getLogger(__name__)
+from ..consts import logger
 
 
 @dataclass

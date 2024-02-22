@@ -2,14 +2,15 @@
 PHUB constants.
 '''
 
-import logging
 import re as engine
 from re import Pattern as p
 from typing	import Callable
-
 from . import errors
+from loguru import logger
+import os
 
-logger = logging.getLogger(__name__)
+CWD = os.path.dirname(os.path.realpath(__file__))
+logger.add(os.path.join(CWD, "error.log"), rotation="1 week", level="DEBUG")
 
 
 HOST = 'https://www.pornhub.com/'

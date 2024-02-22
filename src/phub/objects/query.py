@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import logging
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Iterator, Any, Self, Callable
 
@@ -16,7 +15,7 @@ from .. import errors
 if TYPE_CHECKING:
     from ..core import Client
 
-logger = logging.getLogger(__name__)
+from ..consts import logger
 
 QueryItem = Video | FeedItem | User
 

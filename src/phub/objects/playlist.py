@@ -1,4 +1,3 @@
-import logging
 import re
 from functools import cached_property
 from typing import TYPE_CHECKING
@@ -17,8 +16,7 @@ from ..modules import download, parser, display
 if TYPE_CHECKING:
     from ..core import Client
 
-logger = logging.getLogger(__name__)
-
+from ..consts import logger
 
 class Playlist:
     '''

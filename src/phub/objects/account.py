@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import logging
 from functools import cached_property
 from typing import TYPE_CHECKING, Self, Literal, Iterator
 
@@ -12,8 +11,7 @@ if TYPE_CHECKING:
     from ..core import Client
     from . import Feed, queries, User
 
-logger = logging.getLogger(__name__)
-
+from ..consts import logger
 
 class Account:
     '''
@@ -81,7 +79,7 @@ class Account:
         # We assert that the account is from a normal user (not model, etc.)
         if not 'users/' in self.user.url:
             logger.error('Invalid user type: %s', url)
-            raise NotImplementedError('Non-user account are not supported.')
+            #raise NotImplementedError('Non-user account are not supported.')
     
     def refresh(self, refresh_login: bool = False) -> None:
         '''
