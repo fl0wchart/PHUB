@@ -37,13 +37,13 @@ class Image:
         self.client = client
         self._servers = servers
         
-        logger.debug('Generated new image object: %s', self)
+        logger.debug(f'Generated new image object: {self}')
         
         # Check server image sizes
         sizes = [s.get('size') for s in servers]
         
         if len(set(sizes)) > 1:
-            logger.warning('Detected different image sizes on alt servers: %s', sizes)
+            logger.warning(f'Detected different image sizes on alt servers: {sizes}')
     
     def __repr__(self) -> str:
         
@@ -68,7 +68,7 @@ class Image:
         if os.path.isdir(path):
             path = utils.concat(path, self.name + ext)
         
-        logger.info('Saving %s at %s', self, path)
+        logger.info(f'Saving {self} at {path}')
         
         with open(path, 'wb') as file:
             
@@ -79,12 +79,12 @@ class Image:
                 
             except Exception as err:
                 
-                logger.warning('Failed to get image `%s`', url)
+                logger.warning(f'Failed to get image `{url}`')
                 if not self._servers: raise err
                 
                 # Pop server and retry
                 server = self._servers.pop(0)
-                logger.info('Retrying download with server %s', server)
+                logger.info(f'Retrying download with server {server}')
                 self.url = server['src']
                 self.download(path)
 

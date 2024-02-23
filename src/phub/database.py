@@ -1,7 +1,7 @@
 import pickle
 from .consts import logger
 import pickle
-from .utils import catch_all_exceptions
+
 from sqlalchemy import create_engine, Column, String, LargeBinary, Integer, DateTime, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
@@ -10,6 +10,7 @@ from typing import Union
 
 
 Base = declarative_base()
+
 
 # Define models
 # Not really secret, encryption is needed here
@@ -33,18 +34,19 @@ class SecretKey(Base):
 class JsonData(Base):
     __tablename__ = 'json_data'
     id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now().isoformat())
+    timestamp = Column(DateTime, default=datetime.now)  
     data = Column(JSON)
 
 
-# Database operations class
-@catch_all_exceptions #use for debugging
+
 class DatabaseOperations:
+    @logger.catch(level="DEBUG")
     def __init__(self, db_path: str):
         self.engine = create_engine(db_path, echo=True)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
-
+        
+    @logger.catch(level="DEBUG")
     def save_credentials(self, username: str, password: str):
         with self.Session() as session:
             credential = session.query(Credential).filter_by(username=username).first()
@@ -55,8 +57,17 @@ class DatabaseOperations:
                 session.add(credential)
             session.commit()
             
-
+    @logger.catch(level="DEBUG")
     def load_credentials(self, username: str) -> Union[tuple, None]:
+        """
+        Load credentials for a user.
+
+        Args:
+            username (str): 
+
+        Returns:
+            Union[tuple, None]: 
+        """
         with self.Session() as session:
             credential = session.query(Credential).filter_by(username=username).first()
             
@@ -66,8 +77,16 @@ class DatabaseOperations:
             else:
                 logger.info(f"No credentials found for user: {username}")
                 return None
-
+            
+    @logger.catch(level="DEBUG")
     def save_cookies(self, username: str, cookies: dict):
+        """
+        Save cookies for a user.
+
+        Args:
+            username (str): 
+            cookies (dict): 
+        """
         with self.Session() as session:
             pickled_cookies = pickle.dumps(cookies)
             session_data = session.query(SessionData).filter_by(username=username).first()
@@ -79,8 +98,18 @@ class DatabaseOperations:
             session.commit()
             
             logger.info(f"Cookies saved for user: {username}")
-
+            
+    @logger.catch(level="DEBUG")
     def load_cookies(self, username: str) -> Union[dict, None]:
+        """
+        Load cookies for a user.
+
+        Args:
+            username (str): 
+
+        Returns:
+            Union[dict, None]: 
+        """
         with self.Session() as session:
             session_data = session.query(SessionData).filter_by(username=username).first()
             
@@ -91,8 +120,16 @@ class DatabaseOperations:
             else:
                 logger.info(f"No cookies found for user: {username}")
                 return None
-
+            
+    @logger.catch(level="DEBUG")
     def insert_secret_key(self, username: str, secret_key: str):
+        """
+        Insert secret key for a user.
+
+        Args:
+            username (str):
+            secret_key (str): 
+        """
         with self.Session() as session:
             secret_key_entry = session.query(SecretKey).filter_by(username=username).first()
             if secret_key_entry:
@@ -103,8 +140,15 @@ class DatabaseOperations:
             session.commit()
             
             logger.info(f"Secret key inserted for user: {username}")
-
+            
+    @logger.catch(level="DEBUG")
     def del_session(self, username: str):
+        """
+        Delete session for a user.
+
+        Args:
+            username (str): Username
+        """
         with self.Session() as session:
             session_data = session.query(SessionData).filter_by(username=username).delete()
             session.commit()
@@ -113,24 +157,46 @@ class DatabaseOperations:
                 logger.info(f"Session deleted for user: {username}")
             else:
                 logger.info(f"No session found for user: {username}")
-
+                
+    @logger.catch(level="DEBUG")
     def maintain_last_3_timestamps(self):
+        """
+        Maintain the last 3 timestamps in json_data table.
+        
+        """
         with self.Session() as session:
             subquery = session.query(JsonData.id).order_by(JsonData.id.desc()).limit(3).subquery()
             session.query(JsonData).filter(~JsonData.id.in_(subquery)).delete(synchronize_session=False)
             session.commit()
             
             logger.info("Maintained the last 3 timestamps in json_data table")
-
+            
+    @logger.catch(level="DEBUG")
     def save_json_data(self, data):
+        """
+        Save JSON data with current timestamp.
+
+        Args:
+            data (dict): JSON data to save.
+        """
         with self.Session() as session:
-            json_data = JsonData(timestamp=datetime.now().isoformat(), data=data)
+            json_data = JsonData(data=data)
             session.add(json_data)
             session.commit()
     
             logger.info("JSON data saved with current timestamp")
-        
+            
+    @logger.catch(level="DEBUG")
     def get_secret_key(self, username: str) -> str:
+        """
+        Get secret key for a user.
+
+        Args:
+            username (str): 
+
+        Returns:
+            str: secret key
+        """
         with self.Session() as session:
             secret_key_entry = session.query(SecretKey).filter_by(username=username).first()
             if secret_key_entry:

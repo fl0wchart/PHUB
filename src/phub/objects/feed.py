@@ -27,7 +27,7 @@ class Feed:
         
         self.client = client
         
-        logger.debug('Initialised account feed: %s', self)
+        logger.debug(f'Initialised account feed: {self}')
     
     def __repr__(self) -> str:
         

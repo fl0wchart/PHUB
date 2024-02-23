@@ -8,6 +8,8 @@ from typing	import Callable
 from . import errors
 from loguru import logger
 import os
+from datetime import datetime
+from string import Template
 
 CWD = os.path.dirname(os.path.realpath(__file__))
 logger.add(os.path.join(CWD, "error.log"), rotation="1 week", level="DEBUG")
@@ -43,6 +45,23 @@ IFRAME = '<iframe src="https://www.pornhub.com/embed/{key}" frameborder="0" widt
 
 # Supported languages
 LANGUAGES = [ 'cn', 'de', 'fr', 'it', 'pt', 'pl', 'rt', 'nl', 'cz', 'jp' ]
+
+# Model constants
+PORNHUB_EXPORT_URL = "https://www.pornhub.com/video/manage_export" #legacy but still works
+PORNHUB_MAINHUB_EXPORT_URL = "https://pornhub.mainhub.com/video-manager/export-videos"
+PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL = "https://pornhub.com/authenticate/goToMainhub?url=video-manager%2Fmanage-videos" #we need the cookies from here
+PORNHUB_GOTO_MAINHUB = "https://pornhub.com/authenticate/goToMainhub"
+MAINHUB_AUTHENTICATE_RAW = "https://pornhub.mainhub.com/authenticate/login_auto?"
+MODELHUB_SETTINGS = "https://www.pornhub.com/model/modelhub/settings"
+THUMBNAIL_UPLOAD = "https://pornhub.mainhub.com/uploading/thumbnail"
+VIDEO_MANAGER_JSON = "https://pornhub.mainhub.com/video-manager/manage-videos-ajax"
+# Use like: CONST.substitute(token=token)
+DAILY_EARNINGS_HISTORY_TEMPLATE = Template(f"https://pornhub.mainhub.com/graph/revenue/history/by-user-earnings-source?start_date=2012-01-01&end_date={datetime.now().strftime('%Y-%m-%d')}&token="+"${token}")
+TOTAL_PAYOUTS_HISTORY_TEMPLATE = Template("https://pornhub.mainhub.com/earnings/payouts-widget?token=${token}")
+SINGLE_VIDEO_HISTORY_TEMPLATE = Template("https://pornhub.mainhub.com/video-manager/video-stats-ajax?videoId=${video_id}&token=${token}&filter=lifetime")
+DAILY_ACCOUNT_TRAFFIC_TEMPLATE = Template("https://www.pornhub.com/model/daily_traffic?month=${month}") # legacy but still works
+
+
 
 # Regex wrappers
 

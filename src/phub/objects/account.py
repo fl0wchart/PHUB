@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import io
+import os
+import pandas as pd
+import json
+from pprint import pprint
 from functools import cached_property
 from typing import TYPE_CHECKING, Self, Literal, Iterator
 
 from .. import utils
 from .. import consts
 from . import User, Image
+
 
 if TYPE_CHECKING:
     from ..core import Client
@@ -49,12 +55,13 @@ class Account:
         self.avatar: Image = None
         self.is_premium: bool = None
         self.user: User = None
+        self.model = Model(client)
         
         # Save data keys so far, so we can make a difference with the
         # cached property ones.
         self.loaded_keys = list(self.__dict__.keys()) + ['loaded_keys']
         
-        logger.info('Account object %s created', self)
+        logger.info(f'Account object {self} created')
         
     def __repr__(self) -> str:
         
@@ -78,7 +85,7 @@ class Account:
         
         # We assert that the account is from a normal user (not model, etc.)
         if not 'users/' in self.user.url:
-            logger.error('Invalid user type: %s', url)
+            logger.error(f'Invalid user type: {url}')
             #raise NotImplementedError('Non-user account are not supported.')
     
     def refresh(self, refresh_login: bool = False) -> None:
@@ -89,7 +96,7 @@ class Account:
             refresh_login (bool): Whether to also attempt to re-log in.
         '''
         
-        logger.info('Refreshing account %s', self)
+        logger.info(f'Refreshing account {self}')
         
         if refresh_login:
             logger.info('Forcing login refresh')
@@ -99,7 +106,7 @@ class Account:
         for key in list(self.__dict__.keys()):
             if not key in self.loaded_keys:
                 
-                logger.debug('Deleting key %s', key)
+                logger.debug(f'Deleting key {key}')
                 delattr(self, key)
     
     @cached_property
@@ -173,5 +180,61 @@ class Account:
         
         return utils.dictify(self, keys, ['name', 'avatar',
                                           'is_premium', 'user'], recursive)
+        
+        
+        
+
+class Model(Account):
+    
+    def __init__(self, client: 'Client') -> None:
+        self.client = client
+    
+    @logger.catch
+    def download_stats(self) -> bytes:  
+        """
+        Download the stats CSV file using curl or Selenium as fallback.
+
+        Args:
+            uname (str): Username
+        
+        Returns:
+            bytes: Downloaded CSV file content
+        """
+     
+        self.client.call(consts.PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL, method = "get", timeout = 10) #we need the cookies from here 
+        content = self.client.call(consts.PORNHUB_MAINHUB_EXPORT_URL, method = "get", timeout = 10).content
+        df = pd.read_csv(io.StringIO(content.decode('utf-8')), sep=',')
+        
+        if not df.empty:
+            csv_dir = os.path.join(consts.CWD, "csv")
+            os.makedirs(csv_dir, exist_ok=True)
+            csv_file_path = os.path.join(csv_dir, f"{self.client.credentials['username']+'.csv'}")
+            df.to_csv(csv_file_path, index=False)
+            logger.info(f"Downloaded stats CSV file of user: {self.client.credentials['username']}")
+            return df
+        else:
+            logger.error(f"Failed to download stats CSV file of user: {self.client.credentials['username']}")
+            logger.debug(f"Response: {pprint(content)}")
+            return False
+
+
+
+    @logger.catch
+    def get_json(self):
+        """
+        Get the JSON data of the user.
+
+        Args:
+            username (str):
+
+        Returns:
+            dict: JSON data
+        """
+        self.client.call(consts.PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL, timeout=10)
+        res = self.client.call(consts.VIDEO_MANAGER_JSON, data='{"uc": 0, "itemsPerPage": 1000, "useOffset": 0}', timeout=10)
+        data = json.loads(res.text)
+        self.client.db_ops.save_json_data(data)
+        return data
+    
 
 # EOF

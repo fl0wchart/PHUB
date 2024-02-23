@@ -61,7 +61,7 @@ class Query:
             self.url += f'{nk}={ns}'
             add_qm = False
         
-        logger.debug('Initialised new query %s', self)
+        logger.debug(f'Initialised new query {self}')
     
     def __repr__(self) -> str:
         
@@ -264,7 +264,7 @@ class queries:
 
             elif videos is None:
                 print(raw)
-                logger.error('Invalid API response from `%s`', self.url)
+                logger.error(f'Invalid API response from `{self.url}`')
                 raise errors.ParsingError('Invalid API response')
 
             return videos
@@ -340,7 +340,7 @@ class queries:
                     yield wrapped
                 
                 else:
-                    logger.info('Bypassed spicevid video: %s', wrapped)
+                    logger.info(f'Bypassed spicevid video: {wrapped}')
 
     class UserQuery(VideoQuery):
         '''

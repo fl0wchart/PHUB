@@ -39,7 +39,7 @@ class Param:
         
         items = [(k, sep.join(v)) for k, v in self.value.items()]
         items = [f'not {v}' if 'exclude-' in k else v for k, v in items]
-        
+
         return f'Param({sep.join(items)})'
     
     @staticmethod

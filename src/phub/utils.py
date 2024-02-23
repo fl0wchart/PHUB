@@ -294,18 +294,7 @@ def head(client: object, url: str) -> str | bool:
     return False
 
 
-def catch_all_exceptions(cls):
-    """
-    Catch all exceptions for the class methods by wrapping them in logger.catch
-    This is mainly for debugging purposes.
 
-    Returns:
-        cls: Class with all methods wrapped in logger.catch
-    """
-    for name, method in cls.__dict__.items():
-        if callable(method):
-            setattr(cls, name, logger.catch(method))
-    return cls
 
 
 # EOF

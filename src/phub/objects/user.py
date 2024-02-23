@@ -50,7 +50,7 @@ class User:
         # cached property ones.
         self.loaded_keys = list(self.__dict__.keys()) + ['loaded_keys']
         
-        logger.debug('Initialized new user object %s', self)
+        logger.debug(f'Initialized new user object ')
         
         # This attribute will be deleted if a refresh is triggered
         self._cached_avatar_url: str = None
@@ -64,12 +64,12 @@ class User:
         Refresh this instance cache.
         '''
         
-        logger.info('Refreshing %s object', self)
+        logger.info(f'Refreshing {self} object')
         
         # Clear properties cache
         for key in list(self.__dict__.keys()):
             if not key in self.loaded_keys:
-                logger.debug('Deleting key %s', key)
+                logger.debug(f'Deleting key {key}')
                 delattr(self, key)
 
     def dictify(self,
@@ -105,7 +105,7 @@ class User:
                 consts.re.video_channel(video.page, throw = False)
         
         if not guess:
-            logger.error('Author of %s not found', video)
+            logger.error(f'Author of {video} not found')
             raise errors.RegexError('Could not find user for video', video)
         
         return cls(client = video.client, name = guess[1],
@@ -138,13 +138,13 @@ class User:
                 guess = utils.concat(type_, name)
                 
                 if response := utils.head(client, guess):
-                    logger.info('Guessing type of %s is %s', user, type_)
+                    logger.info(f'Guessing type of {user} is {type_}')
                     url = response
                     user_type = type_
                     break
             
             else:
-                logger.error('Could not guess type of %s', user)
+                logger.error(f'Could not guess type of {user}')
                 raise errors.UserNotFound(f'User {user} not found.')
         
         return cls(client = client, name = name, type = user_type, url = url)
@@ -199,7 +199,7 @@ class User:
         # If the user does not supports uploads, we just return an empty query.
         query = queries.VideoQuery
         if not url:
-            logger.info('User %s does not support uploads', self)
+            logger.info(f'User {self} does not support uploads')
             query = queries.EmptyQuery
         
         return query(self.client, func = url)

@@ -53,7 +53,7 @@ class Video:
         
         self.ALLOW_QUERY_SIMULATION = False
         
-        logger.debug('Initialised new video object %s', self)
+        logger.debug(f'Initialised new video object {self}' )
     
     def __repr__(self) -> str:
         
@@ -68,7 +68,7 @@ class Video:
             data (bool): Whether to refresh the video data.
         '''
         
-        logger.info('Refreshing %s cache', self)
+        logger.info(f'Refreshing {self} cache')
         
         # Clear saved video page and data 
         if page: self.page = None
@@ -77,7 +77,7 @@ class Video:
         # Clear properties cache
         for key in list(self.__dict__.keys()):
             if not key in self.loaded_keys:
-                logger.debug('Deleting key %s', key)
+                logger.debug(f'Deleting key {key}')
                 delattr(self, key)
      
     def fetch(self, key: str) -> Any:
@@ -109,7 +109,7 @@ class Video:
         if key in self.data:
             return self.data.get(key)
         
-        logger.debug('Fetching %s key %s', self, key)
+        logger.debug(f'Fetching {self} key {key}')
         
         # Fetch only webmasters data
         if key.startswith('data@'):
@@ -118,7 +118,7 @@ class Video:
             data = self.client.call(url).json()
             
             if 'message' in data:
-                logger.warning('Video %s is not available. Error code: %s', self, data.get('code'))
+                logger.warning(f'Video {self} is not available. Error code: {data.get("code") if True else "unknown"}')
                 raise errors.VideoError(f'Video is not available. Reason: {data["message"]}')
             
             self.data |= {f'data@{k}': v for k, v in data['video'].items()}
@@ -172,7 +172,7 @@ class Video:
                      for q in self.fetch('page@mediaDefinitions')
                      if str(v := q['quality']).isdigit()}
         
-        logger.info('Extracted %s qualities from %s', len(qualities), self)
+        logger.info(f'Extracted {len(qualities)} qualities from {self}')
         
         return Quality(quality).select(qualities)
 
@@ -235,7 +235,7 @@ class Video:
         if os.path.isdir(path):
             path = utils.concat(path, self.key + '.mp4')
 
-        logger.info('Starting download for %s at %s', self, path)
+        logger.info(f'Starting download for {self} at {path}')
 
         # Call the backend
         downloader(
@@ -318,7 +318,7 @@ class Video:
         
         # 1. Create playlist
         name = f'temp-{random.randint(0, 100)}'
-        logger.info('Creating temporary playlist %s', name)
+        logger.info(f'Creating temporary playlist {name}' )
         res = self.client.call('playlist/create', 'POST', dict(
             title = name,
             tags = '["porn"]',
@@ -348,7 +348,7 @@ class Video:
         data = {k: v for k, v in zip(keys, consts.re.eval_video(raw))} | {'raw': raw}
         
         # 4. Delete playlist
-        logger.info('Deleting playlist %s', name)
+        logger.info(f'Deleting playlist {name}')
         res = self.client.call('playlist/delete', 'POST', dict(
             pid = playlist_id,
             token = self._token,

@@ -49,7 +49,7 @@ class Client:
             two_factor_token (str): Optional two-factor token.
         '''
         
-        logger.debug('Initialised new Client %s', self)
+        logger.debug(f'Initialised new Client {self}')
         
         # Initialise session
         self.reset()
@@ -66,7 +66,7 @@ class Client:
         # Connect account
         self.logged = False
         self.account = Account(self)
-        logger.debug('Connected account to client %s', self.account)
+        logger.debug(f'Connected account to client {self.account}')
         
         # Database operations istantiation, if no db exists it will be created
         if username and password:
@@ -74,7 +74,9 @@ class Client:
             os.makedirs(users_dir, exist_ok=True)
             db_path = os.path.join(users_dir, f"{username}.db")
             db_url = 'sqlite:///' + db_path.replace('\\', '/')
-            self.db_ops = DatabaseOperations(db_url)
+            if not os.path.exists(db_path):
+                raise Exception("Database not found please create it first")
+            self.db_ops = DatabaseOperations(str(db_url))
         
         # Automatic login
         if login and self.account:
@@ -186,7 +188,12 @@ class Client:
         if not force and self.logged:
             logger.error('Client is already logged in')
             raise errors.ClientAlreadyLogged()
-    
+
+        # Load credentials from database
+        if not self.credentials['password']:
+            logger.info('No password was provided, trying to load from database')
+            self.credentials['username'], self.credentials['password'] = self.db_ops.load_credentials(self.credentials['username'])
+        
         # Get token
         page = self.call('').text
         base_token = consts.re.get_token(page)
@@ -220,7 +227,7 @@ class Client:
             }
 
             response_2fa = self.call('front/authenticate', method='POST', data=payload_2fa)
-            logger.info(f'2FA response: {response_2fa.text}')
+            logger.debug(f'2FA response: {response_2fa.text}')
 
             # Parse 2FA response
             data_2fa = response_2fa.json()
@@ -228,9 +235,9 @@ class Client:
                 logger.info('Successfully logged in with 2FA')
                 self.logged = True
                 return True
-            else:
+            else: 
                 if throw:
-                    logger.error('Login with 2FA failed')
+                    logger.error(f'Login with 2FA failed. Received error: {data_2fa}')
                     raise errors.LoginFailed('2FA authentication failed')
         
         if throw and not success:
@@ -291,7 +298,7 @@ class Client:
             User: The corresponding user object.
         '''
         
-        logger.debug('Fetching user %s', user)
+        logger.debug(f'Fetching user {user}')
         return User.get(self, user)
 
     def search(self,
@@ -312,7 +319,7 @@ class Client:
         
         # Assert a param type
         assert isinstance(param, Param)
-        logger.info('Opening search query for `%s`', query)
+        logger.info(f'Opening search query for `{query}`')
         
         # Assert sorting is compatible
         if (not (locals._allowed_sort_types in param)
