@@ -51,6 +51,13 @@ class DatabaseOperations:
         
     @logger.catch(level="DEBUG")
     def save_credentials(self, username: str, password: str):
+        """
+        Save credentials for a user.
+
+        Args:
+            username (str):
+            password (str): 
+        """
         with self.Session() as session:
             credential = session.query(Credential).filter_by(username=username).first()
             if credential:
@@ -121,7 +128,7 @@ class DatabaseOperations:
                 logger.info(f"Cookies loaded for user: {username}")
                 return cookies
             else:
-                logger.info(f"No cookies found for user: {username}")
+                logger.warning(f"No cookies found for user: {username}")
                 return None
             
     @logger.catch(level="DEBUG")

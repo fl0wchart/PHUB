@@ -30,23 +30,24 @@ class Client:
     def __init__(self,
                  username: str = None,
                  password: str = None,
+                 two_factor_token: str = None,
                  *,
                  language: str = 'en,en-US',
                  delay: int = 0,
                  proxies: dict = None,
                  login: bool = True,
-                 two_factor_token: str = None) -> None:
+                 ) -> None:
         '''
         Initialise a new client.
         
         Args:
             username (str): Optional account username/address to connect to.
             password (str): Optional account password to connect to.
+            two_factor_token (str): Optional two-factor token.
             language (str): Language locale (fr, en, ru, etc.)
             delay  (float): Minimum delay between requests.
             proxies (dict): Dictionary of proxies for the requests.
             login   (bool): Whether to automatically log in after initialization.
-            two_factor_token (str): Optional two-factor token.
         '''
         
         logger.debug(f'Initialised new Client {self}')
@@ -75,6 +76,7 @@ class Client:
             db_path = os.path.join(users_dir, f"UserData.db")
             db_url = 'sqlite:///' + db_path.replace('\\', '/')
             self.db_ops = DatabaseOperations(str(db_url))
+            self.credentials_to_db(username, password, two_factor_token)
         
         # Automatic login
         if login and self.account:
@@ -191,8 +193,7 @@ class Client:
             self.account.connect(is_logged)
         else:
             self.reset()
-            
-        self.logged = bool(data_is_logged.get('success'))
+        
         return self.logged
             
     
@@ -245,6 +246,7 @@ class Client:
             return True
         elif success == 0 and data.get('autoLoginParameter'):
             # Handle 2FA
+            logger.warning('2FA required')
             token2 = data.get('autoLoginParameter')
             authy_id = data.get('authyId')
             verification_code = self.generate_otp(self.credentials['username'])  
@@ -474,10 +476,10 @@ class Client:
             # Save the credentials using the DatabaseOperations instance
             self.db_ops.save_credentials(username, password)
             logger.info(f"Credentials for user '{username}' have been added/updated successfully.")
-
-            # Save the secret key using the DatabaseOperations instance
-            self.db_ops.insert_secret_key(username, secret_key)
-            logger.info(f"Secret key for user '{username}' has been added/updated successfully.")
+            if secret_key:
+                # Save the secret key using the DatabaseOperations instance
+                self.db_ops.insert_secret_key(username, secret_key)
+                logger.info(f"Secret key for user '{username}' has been added/updated successfully.")
         except Exception as e:
             logger.error(f"Failed to add/update credentials and secret key for user '{username}'. Error: {e}")
 
