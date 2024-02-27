@@ -61,7 +61,9 @@ TOTAL_PAYOUTS_HISTORY_TEMPLATE = Template("https://pornhub.mainhub.com/earnings/
 SINGLE_VIDEO_HISTORY_TEMPLATE = Template("https://pornhub.mainhub.com/video-manager/video-stats-ajax?videoId=${video_id}&token=${token}&filter=lifetime")
 DAILY_ACCOUNT_TRAFFIC_TEMPLATE = Template("https://www.pornhub.com/model/daily_traffic?month=${month}") # legacy but still works
 
-
+# Telegram constants
+BOT_TOKEN = "1234567890:ABCDEF" # Replace with your bot token
+CHAT_IDS = ["-1234567890",] # Replace with your chat IDs
 
 # Regex wrappers
 

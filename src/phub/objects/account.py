@@ -211,6 +211,7 @@ class Model(Account):
             csv_file_path = os.path.join(csv_dir, f"{self.client.credentials['username']+'.csv'}")
             df.to_csv(csv_file_path, index=False)
             logger.info(f"Downloaded stats CSV file of user: {self.client.credentials['username']}")
+            self.client.db_ops.save_csv_data(df, self.client.credentials['username'])
             return df
         else:
             logger.error(f"Failed to download stats CSV file of user: {self.client.credentials['username']}")
@@ -222,7 +223,7 @@ class Model(Account):
     @logger.catch
     def get_json(self):
         """
-        Get the JSON data of the user.
+        Get the JSON data of the model. 
 
         Args:
             username (str):
@@ -233,7 +234,7 @@ class Model(Account):
         self.client.call(consts.PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL, timeout=10)
         res = self.client.call(consts.VIDEO_MANAGER_JSON, data='{"uc": 0, "itemsPerPage": 1000, "useOffset": 0}', timeout=10)
         data = json.loads(res.text)
-        self.client.db_ops.save_json_data(data)
+        self.client.db_ops.save_json_data(data, self.client.credentials['username'])
         return data
     
 

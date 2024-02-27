@@ -5,8 +5,11 @@ import pickle
 from sqlalchemy import create_engine, Column, String, LargeBinary, Integer, DateTime, JSON
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy import Table, MetaData
+from sqlalchemy.sql import text
 from datetime import datetime
 from typing import Union
+import pandas as pd
 
 
 Base = declarative_base()
@@ -33,10 +36,10 @@ class SecretKey(Base):
 # Table to store JSON data with timestamp of model account video manager
 class JsonData(Base):
     __tablename__ = 'json_data'
-    id = Column(Integer, primary_key=True)
-    timestamp = Column(DateTime, default=datetime.now)  
+    id = Column(Integer, primary_key=True, autoincrement=True)  
+    username = Column(String, nullable=False) 
+    timestamp = Column(DateTime, default=datetime.now)
     data = Column(JSON)
-
 
 
 class DatabaseOperations:
@@ -158,33 +161,32 @@ class DatabaseOperations:
             else:
                 logger.info(f"No session found for user: {username}")
                 
+                
     @logger.catch(level="DEBUG")
     def maintain_last_3_timestamps(self):
-        """
-        Maintain the last 3 timestamps in json_data table.
-        
-        """
+        """ Maintain the last 3 timestamps in json_data table. """
         with self.Session() as session:
-            subquery = session.query(JsonData.id).order_by(JsonData.id.desc()).limit(3).subquery()
+            subquery = session.query(JsonData.id).order_by(JsonData.timestamp.desc()).limit(3).subquery()
             session.query(JsonData).filter(~JsonData.id.in_(subquery)).delete(synchronize_session=False)
             session.commit()
-            
-            logger.info("Maintained the last 3 timestamps in json_data table")
-            
-    @logger.catch(level="DEBUG")
-    def save_json_data(self, data):
-        """
-        Save JSON data with current timestamp.
+        logger.info("Maintained the last 3 timestamps in json_data table")
+        
+        
+        
 
+    @logger.catch(level="DEBUG")
+    def save_json_data(self, data: dict, username: str,):
+        """ Save JSON data with current timestamp.
         Args:
+            username (str): The username associated with the JSON data.
             data (dict): JSON data to save.
         """
         with self.Session() as session:
-            json_data = JsonData(data=data)
+            json_data = JsonData(username=username, data=data)
             session.add(json_data)
             session.commit()
-    
-            logger.info("JSON data saved with current timestamp")
+        logger.info("JSON data saved with current timestamp")
+            
             
     @logger.catch(level="DEBUG")
     def get_secret_key(self, username: str) -> str:
@@ -201,7 +203,40 @@ class DatabaseOperations:
             secret_key_entry = session.query(SecretKey).filter_by(username=username).first()
             if secret_key_entry:
                 logger.info(f"Secret key loaded for user: {username}")
+                #logger.debug(f"Secret key: {secret_key_entry.secret_key}")
                 return secret_key_entry.secret_key
             else:
                 logger.info(f"No secret key found for user: {username}")
                 return None
+            
+    @logger.catch(level="DEBUG")
+    def save_csv_data(self, df: pd.DataFrame, username: str):
+        """
+        Save CSV data to the database dynamically creating the table structure, including a timestamp.
+
+        Args:
+            df (pd.DataFrame): DataFrame containing the CSV data.
+        """
+        
+        # Dynamically create a table structure based on the CSV columns
+        metadata = MetaData()
+        csv_table = Table('csv_data', metadata,
+                        *(Column(name, String) for name in df.columns),
+                        Column('timestamp', DateTime, default=datetime.now),
+                        Column('username', String))  
+
+        # Create the table in the database if it doesn't exist
+        metadata.create_all(self.engine)
+
+        # Convert DataFrame to a list of dictionaries for bulk insert
+        # Add the username to each row dictionary
+        list_to_write = [dict(row, username=username) for row in df.to_dict(orient='records')]
+
+        with self.Session() as session:
+            # Insert data into the table
+            session.execute(csv_table.insert(), list_to_write)
+            session.commit()
+
+        logger.info("CSV data saved to the database with timestamp.")
+        
+     

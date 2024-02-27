@@ -72,10 +72,8 @@ class Client:
         if username and password:
             users_dir = os.path.join(consts.CWD, 'users')
             os.makedirs(users_dir, exist_ok=True)
-            db_path = os.path.join(users_dir, f"{username}.db")
+            db_path = os.path.join(users_dir, f"UserData.db")
             db_url = 'sqlite:///' + db_path.replace('\\', '/')
-            if not os.path.exists(db_path):
-                raise Exception("Database not found please create it first")
             self.db_ops = DatabaseOperations(str(db_url))
         
         # Automatic login
@@ -169,6 +167,35 @@ class Client:
         if throw: response.raise_for_status()
         return response
     
+    def login_cookies(self):
+        """
+        Log in using cookies from the database.
+
+        Returns:
+            - bool: Whether the login was successful.
+        """
+        logger.warning('Attempting to log in using cookies')
+        session_cookies = self.db_ops.load_cookies(self.credentials['username'])
+        if session_cookies:
+            self.session.cookies.update(session_cookies)
+            
+        is_logged = self.call('front/authenticate', method='GET')
+        data_is_logged = is_logged.json()
+        logger.debug(f'Login cookies response: {data_is_logged}')
+        
+        if int(data_is_logged.get('success')) == 1:
+            self.logged = True
+            # Reset token
+            self._clear_granted_token()
+            # Update account data
+            self.account.connect(is_logged)
+        else:
+            self.reset()
+            
+        self.logged = bool(data_is_logged.get('success'))
+        return self.logged
+            
+    
     def login(self,
               force: bool = False,
               throw: bool = True) -> bool:
@@ -188,6 +215,11 @@ class Client:
         if not force and self.logged:
             logger.error('Client is already logged in')
             raise errors.ClientAlreadyLogged()
+        
+        # Check if cookies are still valid and use cookies to log in if possible
+        is_logged =  self.login_cookies()
+        if is_logged:
+            return True
 
         # Load credentials from database
         if not self.credentials['password']:
@@ -248,7 +280,7 @@ class Client:
         self._clear_granted_token()
         
         # Update account data
-        self.account.connect(data)
+        self.account.connect(data) if not data_2fa else self.account.connect(data_2fa)
         self.logged = bool(success)
         return self.logged
     
