@@ -6,7 +6,9 @@ import pandas as pd
 import json
 from pprint import pprint
 from functools import cached_property
-from typing import TYPE_CHECKING, Self, Literal, Iterator
+from typing import TYPE_CHECKING, Self, Literal, Iterator, Union
+import concurrent.futures
+from datetime import datetime, timedelta
 
 from .. import utils
 from .. import consts
@@ -80,7 +82,7 @@ class Account:
         self.avatar = Image(self.client, data.get('avatar'), name = 'avatar')
         self.is_premium = data.get('premium_redirect_cookie') != '0'
 
-        url = consts.HOST + f'/users/{self.name}'
+        url = consts.HOST + f'/{self.client.usertype}/{self.name}'
         self.user = User(client = self.client, name = self.name, url = url)
         
         
@@ -178,6 +180,8 @@ class Account:
         return utils.dictify(self, keys, ['name', 'avatar',
                                           'is_premium', 'user'], recursive)
         
+    
+
         
         
 
@@ -187,29 +191,35 @@ class Model(Account):
         self.client = client
     
     @logger.catch
-    def download_stats(self) -> bytes:  
+    def get_stats_csv(self) -> pd.DataFrame | bool:  
         """
-        Download the stats CSV file using curl or Selenium as fallback.
+        Download the stats CSV file of the model/channel/pornstar.
 
         Args:
             uname (str): Username
         
         Returns:
-            bytes: Downloaded CSV file content
+            pd.DataFrame | bool: DataFrame containing the CSV data or False if failed.
         """
      
-        self.client.call(consts.PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL, method = "get", timeout = 10) #we need the cookies from here 
-        content = self.client.call(consts.PORNHUB_MAINHUB_EXPORT_URL, method = "get", timeout = 10).content
+        self.client.call(consts.PORNHUB_GOTO_MAINHUB, timeout = 10) 
+        content = self.client.call(consts.PORNHUB_MAINHUB_EXPORT_URL, timeout = 10).content
         df = pd.read_csv(io.StringIO(content.decode('utf-8')), sep=',')
         
         if not df.empty:
-            csv_dir = os.path.join(consts.CWD, "csv")
-            os.makedirs(csv_dir, exist_ok=True)
-            csv_file_path = os.path.join(csv_dir, f"{self.client.credentials['username']+'.csv'}")
-            df.to_csv(csv_file_path, index=False)
-            logger.info(f"Downloaded stats CSV file of user: {self.client.credentials['username']}")
+            
+            if logger.level == 'DEBUG':
+                # Save the CSV file locally
+                csv_dir = os.path.join(consts.CWD, "csv")
+                os.makedirs(csv_dir, exist_ok=True)
+                self.csv_file_path = os.path.join(csv_dir, f"{self.client.credentials['username']+'.csv'}")
+                df.to_csv(self.csv_file_path, index=False)
+                logger.info(f"Downloaded stats CSV file of user: {self.client.credentials['username']}")
+            
+            # Save the CSV data to the database
             self.client.db_ops.save_csv_data(df, self.client.credentials['username'])
             return df
+        
         else:
             logger.error(f"Failed to download stats CSV file of user: {self.client.credentials['username']}")
             logger.debug(f"Response: {pprint(content)}")
@@ -218,9 +228,9 @@ class Model(Account):
 
 
     @logger.catch
-    def get_json(self):
+    def get_all_videos_json(self):
         """
-        Get the JSON data of the model. 
+        Get the JSON data of the model/channel/pornstar video manager for all videos. 
 
         Args:
             username (str):
@@ -228,11 +238,133 @@ class Model(Account):
         Returns:
             dict: JSON data
         """
-        self.client.call(consts.PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL, timeout=10)
-        res = self.client.call(consts.VIDEO_MANAGER_JSON, data='{"uc": 0, "itemsPerPage": 1000, "useOffset": 0}', timeout=10)
+        self.client.call(consts.PORNHUB_GOTO_MAINHUB, timeout=10)
+        res = self.client.call(consts.VIDEO_MANAGER_JSON, method = 'POST', data = '{"uc": 0, "itemsPerPage": 2000, "useOffset": 0}', timeout = 10)
         data = json.loads(res.text)
-        self.client.db_ops.save_json_data(data, self.client.credentials['username'])
+        self.client.db_ops.save_video_json_data(data, self.client.credentials['username'])
         return data
     
+    
+    @logger.catch
+    def get_daily_earnings_json(self) -> dict:
+        """
+        Get the JSON data of the daily earnings of the model/channel/pornstar.
+
+        Args:
+            username (str):
+
+        Returns:
+            dict: JSON data
+        """
+        self.client.call(consts.PORNHUB_GOTO_MAINHUB)
+        res = self.client.call(consts.DAILY_EARNINGS_HISTORY_TEMPLATE.substitute(token = self.client._granted_token), timeout = 10)
+        earnings_data = json.loads(res.text)
+        self.client.db_ops.save_daily_earnings_data(earnings_data, self.client.credentials['username'])
+        return earnings_data
+    
+    
+    @logger.catch
+    def get_payout_history_json(self) -> dict:
+        """
+        Get the JSON data of the payout history of the model/channel/pornstar.
+
+        Args:
+            username (str):
+
+        Returns:
+            dict: JSON data
+        """
+        # Get the mainhub page token
+        page = self.client.call(consts.PORNHUB_GOTO_MAINHUB).text
+        token = consts.re.token_mainhub(page)
+        
+        res = self.client.call(consts.TOTAL_PAYOUTS_HISTORY_TEMPLATE.substitute(token = token), timeout = 10)
+        payout_data = json.loads(res.text)
+        self.client.db_ops.save_payout_data(payout_data, self.client.credentials['username'])
+        return payout_data
+        
+        
+        
+    @logger.catch
+    def get_single_video_data_json(self) -> dict:
+        """
+        Get the JSON data of the model/channel/pornstar video manager.
+        This is a timeseries that tells us how much money a video made on a given day.
+
+        Returns:
+            List: List of dicts 
+        """
+
+        def fetch_video_data(row):
+            """
+            Fetch the video data of each pornhub video (earnings and views timeseries).
+
+            Args:
+                row (pd.Series): A row of the filtered_ids DataFrame
+
+            Returns:
+                list: List of dictionaries containing the video data
+            """
+            video_url = row['Site URL']
+            title = row['TITLE']
+            video_id = row['ID'] if 'ID' in row else None
+            res = self.client.call(consts.SINGLE_VIDEO_HISTORY_TEMPLATE.substitute(video_id = video_id, token = token), timeout = 10).text
+            res = json.loads(res)
+            
+            video_data_list = []
+
+            for data_type in ('views', 'sales'):
+                if data_type in res['data']:
+                    for item in res['data'][data_type]:
+                        video_data = {
+                            'timestamp': item['x'],
+                            data_type: item['y'],
+                            'site': item['site'],
+                            'title': title,
+                            'url': video_url,
+                            'type': 'view' if data_type == 'views' else 'earnings'
+                        }
+                        video_data_list.append(video_data)
+                        
+            return video_data_list
+        
+        
+        stats = self.get_stats_csv()
+        filtered_ids = stats[stats['PORNHUB'] == 1][['ID', 'TITLE', 'Site URL']]
+
+        # Get the mainhub page token
+        page = self.client.call(consts.PORNHUB_GOTO_MAINHUB).text
+        token = consts.re.token_mainhub(page)
+        
+        # Collect the video data using threads
+        video_data_list = []
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future_to_row = {executor.submit(fetch_video_data, row): row for _, row in filtered_ids.iterrows()}
+            for future in concurrent.futures.as_completed(future_to_row):
+                if not future.cancelled():
+                    video_data_list.extend(future.result())  # Extend the main list with the results to flatten it
+
+        
+        self.client.db_ops.save_single_video_data(video_data_list, self.client.credentials['username'])
+        return video_data_list
+
+    
+    @cached_property     
+    def conversion_rate(self, year: int = None, month: int = None) -> Union[float, None]:
+        # Create default values for year and month
+        if year is None or month is None:
+            current_date = datetime.now()
+            first_day_of_current_month = current_date.replace(day=1)
+            last_day_of_previous_month = first_day_of_current_month - timedelta(days=1)
+            year = last_day_of_previous_month.year
+            month = last_day_of_previous_month.month
+            
+        conversion_rate = self.client.db_ops.get_conversion_rate_for_payout(year=year, month=month, username=self.client.credentials['username'])
+        if conversion_rate is not None:
+            print(f"Conversion rate for {year}-{month} is: {conversion_rate}")
+            return conversion_rate
+        else:
+            logger.error("Not enough data to calculate earnings per 1 million views.")
+        
 
 # EOF

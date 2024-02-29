@@ -249,4 +249,5 @@ class User:
                      url = url,
                      name = f'{self.name}-avatar')
 
+
 # EOF

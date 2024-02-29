@@ -2,14 +2,17 @@ import pickle
 from .consts import logger
 import pickle
 
-from sqlalchemy import create_engine, Column, String, LargeBinary, Integer, DateTime, JSON
+from sqlalchemy import create_engine, Column, String, LargeBinary, Integer, DateTime, JSON, BigInteger, Float, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Table, MetaData
+from sqlalchemy import func
 from sqlalchemy.sql import text
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Union
 import pandas as pd
+from typing import Type, List, Dict
+import calendar
 
 
 Base = declarative_base()
@@ -34,12 +37,49 @@ class SecretKey(Base):
     secret_key = Column(String)
 
 # Table to store JSON data with timestamp of model account video manager
-class JsonData(Base):
-    __tablename__ = 'json_data'
+class VideoManager(Base):
+    __tablename__ = 'video_manager'
     id = Column(Integer, primary_key=True, autoincrement=True)  
     username = Column(String, nullable=False) 
     timestamp = Column(DateTime, default=datetime.now)
     data = Column(JSON)
+    
+    
+class VideoDataDaily(Base):
+    __tablename__ = 'video_data'
+    data_id: int = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp: int = Column(BigInteger, nullable=False, index=True)
+    views: int = Column(Integer)
+    url: str = Column(String)
+    title: str = Column(String)
+    earnings: float = Column(Float)
+    site: str = Column(String(255), nullable=False, index=True)
+    type: str = Column(String(255))
+    username: str = Column(String(255))
+
+    # Create indexes for performance
+    __table_args__ = (
+        Index('ix_video_data_timestamp', 'timestamp'),
+        Index('ix_video_data_site', 'site'),
+    )
+
+class TotalEarningsDaily(Base):
+    __tablename__ = 'total_earnings_daily'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, default=datetime.now)
+    earnings_type = Column(String(255))
+    value = Column(Float)
+    username = Column(String(255))
+    
+class PaymentInfo(Base):
+    __tablename__ = 'payment_info'
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    username = Column(String, nullable=False)
+    finalized_on = Column(String, nullable=False)  # Using String to store the date in DDMMYYYY format
+    net_amount = Column(Float, nullable=False)
+    payment_status = Column(String, nullable=False)
+    invoice_link = Column(String)
+
 
 
 class DatabaseOperations:
@@ -48,6 +88,7 @@ class DatabaseOperations:
         self.engine = create_engine(db_path, echo=True)
         Base.metadata.create_all(self.engine)
         self.Session = sessionmaker(bind=self.engine)
+        
         
     @logger.catch(level="DEBUG")
     def save_credentials(self, username: str, password: str):
@@ -66,6 +107,7 @@ class DatabaseOperations:
                 credential = Credential(username=username, password=password)
                 session.add(credential)
             session.commit()
+            
             
     @logger.catch(level="DEBUG")
     def load_credentials(self, username: str) -> Union[tuple, None]:
@@ -88,6 +130,7 @@ class DatabaseOperations:
                 logger.info(f"No credentials found for user: {username}")
                 return None
             
+            
     @logger.catch(level="DEBUG")
     def save_cookies(self, username: str, cookies: dict):
         """
@@ -108,6 +151,7 @@ class DatabaseOperations:
             session.commit()
             
             logger.info(f"Cookies saved for user: {username}")
+            
             
     @logger.catch(level="DEBUG")
     def load_cookies(self, username: str) -> Union[dict, None]:
@@ -131,6 +175,7 @@ class DatabaseOperations:
                 logger.warning(f"No cookies found for user: {username}")
                 return None
             
+            
     @logger.catch(level="DEBUG")
     def insert_secret_key(self, username: str, secret_key: str):
         """
@@ -150,6 +195,7 @@ class DatabaseOperations:
             session.commit()
             
             logger.info(f"Secret key inserted for user: {username}")
+            
             
     @logger.catch(level="DEBUG")
     def del_session(self, username: str):
@@ -171,28 +217,32 @@ class DatabaseOperations:
                 
     @logger.catch(level="DEBUG")
     def maintain_last_3_timestamps(self):
-        """ Maintain the last 3 timestamps in json_data table. """
+        """ Maintain the last 3 timestamps in video_manager table.
+        Args:
+            table (Base): The table to maintain the last 3 timestamps in.
+        """
         with self.Session() as session:
-            subquery = session.query(JsonData.id).order_by(JsonData.timestamp.desc()).limit(3).subquery()
-            session.query(JsonData).filter(~JsonData.id.in_(subquery)).delete(synchronize_session=False)
+            subquery = session.query(VideoManager.id).order_by(VideoManager.timestamp.desc()).limit(3).subquery()
+            session.query(VideoManager).filter(~VideoManager.id.in_(subquery)).delete(synchronize_session=False)
             session.commit()
-        logger.info("Maintained the last 3 timestamps in json_data table")
+        logger.info("Kept only 3 timestamps in video_manager table")
         
         
-        
-
     @logger.catch(level="DEBUG")
-    def save_json_data(self, data: dict, username: str,):
-        """ Save JSON data with current timestamp.
+    def save_video_json_data(self, data: dict, username: str,):
+        """ 
+        Save JSON data of video manager with current timestamp.
+        We use this data just for monitoring video states by comparing the data with the previous one.
+        This is why only maintain the last 3 timestamps in the table and save the data as JSON.
         Args:
             username (str): The username associated with the JSON data.
             data (dict): JSON data to save.
         """
         with self.Session() as session:
-            json_data = JsonData(username=username, data=data)
+            json_data = VideoManager(username=username, data=data)
             session.add(json_data)
             session.commit()
-        logger.info("JSON data saved with current timestamp")
+        logger.info("video manager data saved with current timestamp")
             
             
     @logger.catch(level="DEBUG")
@@ -216,6 +266,7 @@ class DatabaseOperations:
                 logger.info(f"No secret key found for user: {username}")
                 return None
             
+            
     @logger.catch(level="DEBUG")
     def save_csv_data(self, df: pd.DataFrame, username: str):
         """
@@ -226,6 +277,7 @@ class DatabaseOperations:
         """
         
         # Dynamically create a table structure based on the CSV columns
+        # We could save it as a JSON, but we want to be able to query the data
         metadata = MetaData()
         csv_table = Table('csv_data', metadata,
                         *(Column(name, String) for name in df.columns),
@@ -247,3 +299,121 @@ class DatabaseOperations:
         logger.info("CSV data saved to the database with timestamp.")
         
      
+     
+    @logger.catch(level="DEBUG")
+    def save_single_video_data(self, data_list: List[Dict], username: str) -> None:
+        """
+        Writes a list of video data dictionaries to the database.
+
+        Args:
+            data_list (List[Dict]): List of dictionaries containing video data.
+        """
+        with self.Session() as session:
+            for data in data_list:
+                video_data_entry = VideoDataDaily(
+                    timestamp=int(data.get('timestamp', 0)),
+                    views=data.get('views', 0),
+                    url=data.get('url', ''),
+                    title=data.get('title', ''),
+                    earnings=data.get('sales', 0.0),
+                    site=data.get('site', ''),
+                    type=data.get('type', ''),
+                    username=username
+                )
+                session.add(video_data_entry)
+            session.commit()
+        logger.info("Video data saved to the database.")
+        
+        
+    @logger.catch
+    def save_daily_earnings_data(self, data: dict, username: str) -> None:
+        """
+        Save the daily earnings timeseries
+
+        Args:
+            data (dict): The metrics data in JSON format.
+            username (str): The username associated with the metrics data.
+        """
+        with self.Session() as session:
+            for date, values in data['data'].items():
+                for site, site_data in values.items():
+                    for metric_type, metric_data in site_data.items():
+                        amount = metric_data['amount']
+                        metrics_data_entry = TotalEarningsDaily(
+                            timestamp=datetime.strptime(date, '%Y-%m-%d'),
+                            earnings_type=metric_type,
+                            value=amount,
+                            username=username
+                        )
+                        session.add(metrics_data_entry)
+            session.commit()
+        logger.info("Metrics data saved to the database.")
+        
+        
+    @logger.catch(level="DEBUG")
+    def save_payout_data(self, data: dict, username: str) -> None:
+        """
+        Writes payment information to the database.
+
+        Args:
+            data (dict): Dictionary containing payment information.
+            username (str): Username associated with the payment information.
+        """
+        payment_info_list = data['data']['paymentInfo']
+
+        with self.Session() as session:
+            for payment_info in payment_info_list:
+                # Convert the date to DDMMYYYY format
+                finalized_on = datetime.strptime(payment_info['finalized_on'], '%B %d, %Y').strftime('%d%m%Y')
+
+                payment_entry = PaymentInfo(
+                    username=username,
+                    finalized_on=finalized_on,
+                    net_amount=payment_info['net_amount'],
+                    payment_status=payment_info['payment_status'],
+                    invoice_link=payment_info.get('invoice_link', ''),
+                )
+                session.add(payment_entry)
+            session.commit()
+        logger.info("Payment information saved to the database.")
+        
+        
+        
+    @logger.catch(level="DEBUG")
+    def get_conversion_rate_for_payout(self, year: int, month: int, username: str) -> float:
+        """
+        Calculate the earnings per 1 million views for a specific payout year and month, and username.
+        We assume that the payouts are just for free videos which will be incorrect if bonuses etc. have been paid.
+
+        Args:
+            year (int): The year of the payout.
+            month (int): The month of the payout (1-12).
+            username (str): The username associated with the video data.
+
+        Returns:
+            float: The earnings per 1 million views.
+        """
+        # Calculate the start and end dates of the given month
+        start_date = datetime(year, month, 1)
+        end_date = start_date + timedelta(days=calendar.monthrange(year, month)[1])
+
+        # Query the database for the video data in the given month
+        with self.Session() as session:
+            total_views = session.query(func.sum(VideoDataDaily.views)).filter(
+                VideoDataDaily.username == username,
+                VideoDataDaily.timestamp >= start_date.timestamp(),
+                VideoDataDaily.timestamp < end_date.timestamp()
+            ).scalar() or 0
+
+            total_earnings = session.query(func.sum(VideoDataDaily.earnings)).filter(
+                VideoDataDaily.username == username,
+                VideoDataDaily.timestamp >= start_date.timestamp(),
+                VideoDataDaily.timestamp < end_date.timestamp()
+            ).scalar() or 0
+
+        # Calculate the earnings per 1 million views
+        if total_views > 0:
+            earnings_per_million = f"{(total_earnings / total_views) * 1_000_000:,.2f}"
+            return earnings_per_million
+        else:
+            return None

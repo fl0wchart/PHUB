@@ -6,6 +6,7 @@ import time
 import pyotp
 import requests
 from functools import cached_property
+from typing import Literal
 
 from . import utils
 from . import consts
@@ -30,13 +31,18 @@ class Client:
     def __init__(self,
                  username: str = None,
                  password: str = None,
-                 two_factor_token: str = None,
+                 secret_key: str = None,
                  *,
                  language: str = 'en,en-US',
                  delay: int = 0,
                  proxies: dict = None,
                  login: bool = True,
+                 usertype: Literal['pornstar', 'channel', 'model', 'users'] = 'users',
                  ) -> None:
+        
+        allowed_usertypes = ['pornstar', 'channel', 'model', 'users']
+        if usertype not in allowed_usertypes:
+            raise ValueError(f"usertype must be one of {allowed_usertypes}, got '{usertype}' instead.")
         '''
         Initialise a new client.
         
@@ -63,6 +69,7 @@ class Client:
         } 
         self.delay = delay
         self.start_delay = False
+        self.usertype = usertype
         
         # Connect account
         self.logged = False
@@ -76,7 +83,7 @@ class Client:
             db_path = os.path.join(users_dir, f"UserData.db")
             db_url = 'sqlite:///' + db_path.replace('\\', '/')
             self.db_ops = DatabaseOperations(str(db_url))
-            self.credentials_to_db(username, password, two_factor_token)
+            self.credentials_to_db(username, password, secret_key)
         
         # Automatic login
         if login and self.account:
@@ -187,10 +194,8 @@ class Client:
         
         if int(data_is_logged.get('success')) == 1:
             self.logged = True
-            # Reset token
-            self._clear_granted_token()
             # Update account data
-            self.account.connect(is_logged)
+            self.account.connect(data_is_logged)
         else:
             self.reset()
         
@@ -267,6 +272,7 @@ class Client:
             data_2fa = response_2fa.json()
             if int(data_2fa.get('success')) == 1:
                 logger.info('Successfully logged in with 2FA')
+                self.db_ops.save_cookies(self.credentials['username'], self.session.cookies)
                 self.logged = True
                 return True
             else: 
@@ -504,6 +510,7 @@ class Client:
 
         page = self.call('').text
         return consts.re.get_token(page)
+    
     
 
 # EOF

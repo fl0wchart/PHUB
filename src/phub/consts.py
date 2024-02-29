@@ -49,7 +49,7 @@ LANGUAGES = [ 'cn', 'de', 'fr', 'it', 'pt', 'pl', 'rt', 'nl', 'cz', 'jp' ]
 # Model constants
 PORNHUB_EXPORT_URL = "https://www.pornhub.com/video/manage_export" #legacy but still works
 PORNHUB_MAINHUB_EXPORT_URL = "https://pornhub.mainhub.com/video-manager/export-videos"
-PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL = "https://pornhub.com/authenticate/goToMainhub?url=video-manager%2Fmanage-videos" #we need the cookies from here
+PORNHUB_AUTHENTICATE_MAINHUB_REFER_URL = "https://pornhub.com/authenticate/goToMainhub?url=video-manager%2Fmanage-videos" #we may need the cookies from here, nackup link for PORNHUB_GOTO_MAINHUB
 PORNHUB_GOTO_MAINHUB = "https://pornhub.com/authenticate/goToMainhub"
 MAINHUB_AUTHENTICATE_RAW = "https://pornhub.mainhub.com/authenticate/login_auto?"
 MODELHUB_SETTINGS = "https://www.pornhub.com/model/modelhub/settings"
@@ -209,6 +209,7 @@ class re:
     ffmpeg_line   = find( r'seg-(\d*?)-'                                                                ) # Get FFMPEG segment progress
     get_flash     = find( r'var (flashvars_\d*) = ({.*});\n'                                            ) # Get flash data from a video page
     get_token     = find( r'token *?= \"(.*?)\",'                                                       ) # Get authentification token
+    token_mainhub = find(r'token":"([^"]*)'                                                             ) # Get mainhub token
     get_viewkey = mtch(r'[&\?]viewkey=([a-z\d]+)(?=&|$)')  # Get video URL viewkey
     video_channel = find( r'href=\"(.*?)\" data-event=\"Video Underplayer\".*?bolded\">(.*?)<'          ) # Get video author, if channel
     video_model   = find( r'n class=\"usernameBadgesWrapper.*? href=\"(.*?)\"  class=\"bolded\">(.*?)<' ) # Get video author, if model
