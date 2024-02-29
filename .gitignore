@@ -1,4 +1,3 @@
-**/test*
 **/creds*
 build/*
 docs/build/*
@@ -31,3 +30,5 @@ src/phub.egg-info/PKG-INFO
 src/phub.egg-info/requires.txt
 src/phub.egg-info/SOURCES.txt
 src/phub.egg-info/top_level.txt
+test.py
+src/phub/__pycache__/literals.cpython-311.pyc

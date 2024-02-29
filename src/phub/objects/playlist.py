@@ -1,17 +1,14 @@
+from __future__ import annotations
 import re
 from functools import cached_property
-from typing import TYPE_CHECKING
-
+from typing import TYPE_CHECKING, Iterator
 from urllib.parse import urlencode
 
 import requests.exceptions
 
-from . import Tag, Like, User, Image, Param, Video
-from .. import utils
+from . import Video
 from .. import errors
 from .. import consts
-from ..modules import download, parser, display
-
 
 if TYPE_CHECKING:
     from ..core import Client
@@ -24,7 +21,7 @@ class Playlist:
     '''
 
     # === Base methods === #
-    def __init__(self, client, url: str) -> None:
+    def __init__(self, client: Client, url: str) -> None:
         '''
         Initialise a new playlist object.
 
@@ -39,43 +36,94 @@ class Playlist:
         self.client = client
         self.url = url
         self.html_content = client.call(self.url).text
+        self.total_urls = self.video_urls()
 
-    @cached_property
-    def videos(self):
+    def video_urls(self) -> list:
+        """
+        Scrapes all pages for video URLs
+        """
         page = 1
         has_more_videos = True
-        playlist_id = re.search(r'/playlist/(.*?)', self.url).group(1)
+        playlist_id = re.search(r'playlist/(\d+)', self.url).group(1)
         token = consts.re.get_token(self.html_content)
-
+        total_urls = []
         while has_more_videos:
             # Construct the URL for fetching the playlist page
             try:
                 params = {
-                    'id': playlist_id,  # Assume this is set up elsewhere in your class
-                    'token': token,  # Token provided at runtime
+                    'id': playlist_id,
+                    'token': token,
                     'page': page
                 }
-                # Use urlencode to properly format the query parameters for the URL
+
+                logger.info(f"Loading video page: {page}")
                 query_string = urlencode(params)
-                playlist_url = f"{self.url}?{query_string}"
-
+                playlist_url = f"https://www.pornhub.com/playlist/viewChunked?{query_string}"
                 response = self.client.call(func=playlist_url)
-
                 content = response.content.decode("utf-8")
                 video_urls = [consts.HOST + "view_video" + video for video in consts.re.get_playlist_videos(content) if
                               "pkey=" in video]
                 if video_urls:
-                    # Remove duplicates
-                    video_urls = list(set(video_urls))
-
                     for url in video_urls:
-                        video = Video(self.client, url)
-                        yield video
+                        total_urls.append(url)  # Not yielding the videos immediately, because PH will detect the high
+                        # amount of traffic and stop providing us with the next videos of the pages
+
                     page += 1  # Prepare to load the next page
                 else:
                     # No more videos found, stop the loop
+                    logger.info("No more videos found")
                     has_more_videos = False
 
-            except requests.exceptions.HTTPError:
+            except requests.exceptions.HTTPError as e:
                 has_more_videos = False
                 break
+
+        return total_urls
+
+    @cached_property
+    def videos(self) -> Iterator[Video]:
+        if len(self.total_urls) == 0 or self.total_urls is None:
+            self.video_urls()
+
+        for url in self.total_urls:
+            yield Video(url=url, client=self.client)
+
+    @cached_property
+    def hidden_videos_amount(self) -> str:
+        try:
+            return consts.re.playlist_get_unavailable_videos(self.html_content)
+
+        except errors.RegexError:
+            return 0 # If no banner is there, then all videos are available
+
+    @cached_property
+    def likes(self) -> str:
+        return consts.re.playlist_get_likes(self.html_content)
+
+    @cached_property
+    def dislikes(self) -> str:
+        return consts.re.playlist_get_dislikes(self.html_content)
+
+    @cached_property
+    def like_ratio(self) -> str:
+        return consts.re.playlist_get_like_ratio(self.html_content)
+
+    @cached_property
+    def views(self) -> str:
+        return consts.re.playlist_get_views(self.html_content)
+
+    @cached_property
+    def author(self) -> str:
+        return consts.re.playlist_get_author(self.html_content)
+
+    @cached_property
+    def total_video_amount(self) -> str:
+        return consts.re.playlist_get_total_videos(self.html_content)
+
+    @cached_property
+    def tags(self) -> list:
+        return consts.re.get_playlist_tags(self.html_content)
+
+    @cached_property
+    def title(self) -> str:
+        return consts.re.playlist_get_title(self.html_content)

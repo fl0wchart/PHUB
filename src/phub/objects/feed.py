@@ -3,12 +3,12 @@ from __future__ import annotations
 from functools import cached_property
 from typing import TYPE_CHECKING, Callable, Iterator
 
-from . import User, Param, NO_PARAM, FeedItem
+from .. import literals
+from . import User, FeedItem
 
 if TYPE_CHECKING:
     from . import queries
     from ..core import Client
-    from ..locals import Section
 
 from ..consts import logger
 
@@ -34,13 +34,13 @@ class Feed:
         return f'phub.FeedCreator(for={self.client.account.name})'
     
     def filter(self,
-               section: Section | Param | str = NO_PARAM,
+               section: literals.section = None,
                user: User | str = None) -> queries.FeedQuery:
         '''
         Creates a Feed Query with specific filters.
         
         Args:
-            section (Section | Param | str): Filter parameters.
+            section (str): Filter parameters.
             user (User | str): User to filter feed with.
         '''
         
@@ -50,7 +50,15 @@ class Feed:
         username = user.name if isinstance(user, User) else user
         
         logger.info('Generating new filter feed using args', )
-        return queries.FeedQuery(self.client, 'feeds', Param('username', username) | section)
+        
+        return queries.FeedQuery(
+            client = self.client,
+            func = 'feeds',
+            args = {
+                'username': username,
+                'section': section
+            }
+        )
     
     @cached_property
     def feed(self) -> queries.FeedQuery:

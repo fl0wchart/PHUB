@@ -312,7 +312,7 @@ class Model(Account):
             video_id = row['ID'] if 'ID' in row else None
             # For accounts with many videos we need to slow down the requests
             if video_count > 40:
-                time.sleep(random.randint(4, 7))
+                time.sleep(random.randint(2, 7))
             res = self.client.call(consts.SINGLE_VIDEO_HISTORY_TEMPLATE.substitute(video_id = video_id, token = token), timeout = 10).text
             res = json.loads(res)
             

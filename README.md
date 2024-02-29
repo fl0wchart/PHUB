@@ -2,11 +2,14 @@
   <img width="300" src="https://github.com/Egsagon/PHUB/blob/master/assets/logo.svg">
 </p>
 
-# PHUB - An API for Pornhub.
-[![Downloads](https://static.pepy.tech/badge/phub)](https://pepy.tech/project/phub)
-[![PyPI version](https://badge.fury.io/py/phub.svg)](https://badge.fury.io/py/phub)
+<div align="center">
+    <a href="https://pepy.tech/project/phub"><img src="https://static.pepy.tech/badge/phub" alt="Downloads"></a>
+    <a href="https://badge.fury.io/py/phub"><img src="https://badge.fury.io/py/phub.svg" alt="PyPI version" height="18"></a>
+    <a href="https://github.com/EchterAlsFake/PHUB/workflows/"><img src="https://github.com/EchterAlsFake/PHUB/actions/workflows/tests.yml/badge.svg" alt="API Tests"/></a>
+</div>
 
-
+<br>
+<br>
 PHUB is a hybrid API for Pornhub. It is able to communicate with Pornhub
 using both web-scraping and Pornhub's HubTraffic API. It is
 able to access most used or useful PH features, such as video searching,
