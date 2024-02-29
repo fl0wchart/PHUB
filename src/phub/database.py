@@ -2,12 +2,14 @@ import pickle
 from .consts import logger
 import pickle
 
-from sqlalchemy import create_engine, Column, String, LargeBinary, Integer, DateTime, JSON, BigInteger, Float, Index
+from sqlalchemy import UniqueConstraint, create_engine, Column, String, LargeBinary, Integer, DateTime, JSON, BigInteger, Float, Index
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy import Table, MetaData
 from sqlalchemy import func
 from sqlalchemy.sql import text
+from sqlalchemy.exc import IntegrityError
+
 from datetime import datetime, timedelta
 from typing import Union
 import pandas as pd
@@ -43,12 +45,12 @@ class VideoManager(Base):
     username = Column(String, nullable=False) 
     timestamp = Column(DateTime, default=datetime.now)
     data = Column(JSON)
-    
-    
+     
 class VideoDataDaily(Base):
     __tablename__ = 'video_data'
-    data_id: int = Column(Integer, primary_key=True, autoincrement=True)
-    timestamp: int = Column(BigInteger, nullable=False, index=True)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    timestamp = Column(DateTime, index=True)
+    date: int = Column(BigInteger, nullable=False, index=True)
     views: int = Column(Integer)
     url: str = Column(String)
     title: str = Column(String)
@@ -59,8 +61,9 @@ class VideoDataDaily(Base):
 
     # Create indexes for performance
     __table_args__ = (
+        Index('ix_video_data_date', 'date'),
         Index('ix_video_data_timestamp', 'timestamp'),
-        Index('ix_video_data_site', 'site'),
+        Index('ix_video_data_url', 'url'),
     )
 
 class TotalEarningsDaily(Base):
@@ -82,7 +85,10 @@ class PaymentInfo(Base):
 
 
 
+
+
 class DatabaseOperations:
+    
     @logger.catch(level="DEBUG")
     def __init__(self, db_path: str):
         self.engine = create_engine(db_path, echo=True)
@@ -90,6 +96,8 @@ class DatabaseOperations:
         self.Session = sessionmaker(bind=self.engine)
         
         
+    
+    # LOGIN OPERATIONS
     @logger.catch(level="DEBUG")
     def save_credentials(self, username: str, password: str):
         """
@@ -198,54 +206,6 @@ class DatabaseOperations:
             
             
     @logger.catch(level="DEBUG")
-    def del_session(self, username: str):
-        """
-        Delete session for a user.
-
-        Args:
-            username (str): Username
-        """
-        with self.Session() as session:
-            session_data = session.query(SessionData).filter_by(username=username).delete()
-            session.commit()
-            
-            if session_data:
-                logger.info(f"Session deleted for user: {username}")
-            else:
-                logger.info(f"No session found for user: {username}")
-                
-                
-    @logger.catch(level="DEBUG")
-    def maintain_last_3_timestamps(self):
-        """ Maintain the last 3 timestamps in video_manager table.
-        Args:
-            table (Base): The table to maintain the last 3 timestamps in.
-        """
-        with self.Session() as session:
-            subquery = session.query(VideoManager.id).order_by(VideoManager.timestamp.desc()).limit(3).subquery()
-            session.query(VideoManager).filter(~VideoManager.id.in_(subquery)).delete(synchronize_session=False)
-            session.commit()
-        logger.info("Kept only 3 timestamps in video_manager table")
-        
-        
-    @logger.catch(level="DEBUG")
-    def save_video_json_data(self, data: dict, username: str,):
-        """ 
-        Save JSON data of video manager with current timestamp.
-        We use this data just for monitoring video states by comparing the data with the previous one.
-        This is why only maintain the last 3 timestamps in the table and save the data as JSON.
-        Args:
-            username (str): The username associated with the JSON data.
-            data (dict): JSON data to save.
-        """
-        with self.Session() as session:
-            json_data = VideoManager(username=username, data=data)
-            session.add(json_data)
-            session.commit()
-        logger.info("video manager data saved with current timestamp")
-            
-            
-    @logger.catch(level="DEBUG")
     def get_secret_key(self, username: str) -> str:
         """
         Get secret key for a user.
@@ -268,16 +228,56 @@ class DatabaseOperations:
             
             
     @logger.catch(level="DEBUG")
+    def del_session(self, username: str):
+        """
+        Delete session for a user.
+
+        Args:
+            username (str): Username
+        """
+        with self.Session() as session:
+            session_data = session.query(SessionData).filter_by(username=username).delete()
+            session.commit()
+            
+            if session_data:
+                logger.info(f"Session deleted for user: {username}")
+            else:
+                logger.info(f"No session found for user: {username}")
+                
+                
+                
+                
+                
+    # DATA SAVING OPERATIONS
+    @logger.catch(level="DEBUG")
+    def save_video_json_data(self, data: dict, username: str,):
+        """ 
+        Save JSON data of video manager with current timestamp.
+        We use this data just for monitoring video states by comparing the data with the previous one.
+
+        Args:
+            username (str): The username associated with the JSON data.
+            data (dict): JSON data to save.
+        """
+        with self.Session() as session:
+            json_data = VideoManager(username=username, data=data)
+            session.add(json_data)
+            session.commit()
+        self.maintain_last_x_timestamps(VideoManager)
+        logger.info("video manager data saved with current timestamp")
+            
+            
+    @logger.catch(level="DEBUG")
     def save_csv_data(self, df: pd.DataFrame, username: str):
         """
         Save CSV data to the database dynamically creating the table structure, including a timestamp.
+        Dynamically creates a table structure based on the CSV columns because we are lazy.
+        We could save it as a JSON, but we want to be able to query the data.
 
         Args:
             df (pd.DataFrame): DataFrame containing the CSV data.
         """
         
-        # Dynamically create a table structure based on the CSV columns
-        # We could save it as a JSON, but we want to be able to query the data
         metadata = MetaData()
         csv_table = Table('csv_data', metadata,
                         *(Column(name, String) for name in df.columns),
@@ -299,7 +299,6 @@ class DatabaseOperations:
         logger.info("CSV data saved to the database with timestamp.")
         
      
-     
     @logger.catch(level="DEBUG")
     def save_single_video_data(self, data_list: List[Dict], username: str) -> None:
         """
@@ -308,23 +307,30 @@ class DatabaseOperations:
         Args:
             data_list (List[Dict]): List of dictionaries containing video data.
         """
-        with self.Session() as session:
-            for data in data_list:
-                video_data_entry = VideoDataDaily(
-                    timestamp=int(data.get('timestamp', 0)),
+        timestamp = datetime.now()
+        video_data_entries = []
+        for data in data_list:
+            video_data_entries.append(
+                VideoDataDaily(
+                    date=int(data.get('timestamp', 0)),
                     views=data.get('views', 0),
                     url=data.get('url', ''),
                     title=data.get('title', ''),
                     earnings=data.get('sales', 0.0),
                     site=data.get('site', ''),
                     type=data.get('type', ''),
-                    username=username
+                    username=username,
+                    timestamp=timestamp
                 )
-                session.add(video_data_entry)
+            )
+
+        with self.Session() as session:
+            session.bulk_save_objects(video_data_entries)
             session.commit()
-        logger.info("Video data saved to the database.")
-        
-        
+            self.maintain_last_x_timestamps(VideoDataDaily, 1)
+            logger.info("Video data saved to the database.")
+
+                
     @logger.catch
     def save_daily_earnings_data(self, data: dict, username: str) -> None:
         """
@@ -334,21 +340,25 @@ class DatabaseOperations:
             data (dict): The metrics data in JSON format.
             username (str): The username associated with the metrics data.
         """
-        with self.Session() as session:
-            for date, values in data['data'].items():
-                for site, site_data in values.items():
-                    for metric_type, metric_data in site_data.items():
-                        amount = metric_data['amount']
-                        metrics_data_entry = TotalEarningsDaily(
+        metrics_data_entries = []
+        for date, values in data['data'].items():
+            for site, site_data in values.items():
+                for metric_type, metric_data in site_data.items():
+                    amount = metric_data['amount']
+                    metrics_data_entries.append(
+                        TotalEarningsDaily(
                             timestamp=datetime.strptime(date, '%Y-%m-%d'),
                             earnings_type=metric_type,
                             value=amount,
                             username=username
                         )
-                        session.add(metrics_data_entry)
+                    )
+
+        with self.Session() as session:
+            session.bulk_save_objects(metrics_data_entries)
             session.commit()
-        logger.info("Metrics data saved to the database.")
-        
+            logger.info("Metrics data saved to the database.")
+
         
     @logger.catch(level="DEBUG")
     def save_payout_data(self, data: dict, username: str) -> None:
@@ -379,6 +389,9 @@ class DatabaseOperations:
         
         
         
+        
+        
+    # DATA RETRIEVAL OPERATIONS
     @logger.catch(level="DEBUG")
     def get_conversion_rate_for_payout(self, year: int, month: int, username: str) -> float:
         """
@@ -401,14 +414,14 @@ class DatabaseOperations:
         with self.Session() as session:
             total_views = session.query(func.sum(VideoDataDaily.views)).filter(
                 VideoDataDaily.username == username,
-                VideoDataDaily.timestamp >= start_date.timestamp(),
-                VideoDataDaily.timestamp < end_date.timestamp()
+                VideoDataDaily.date >= start_date.timestamp(),
+                VideoDataDaily.date < end_date.timestamp()
             ).scalar() or 0
 
             total_earnings = session.query(func.sum(VideoDataDaily.earnings)).filter(
                 VideoDataDaily.username == username,
-                VideoDataDaily.timestamp >= start_date.timestamp(),
-                VideoDataDaily.timestamp < end_date.timestamp()
+                VideoDataDaily.date >= start_date.timestamp(),
+                VideoDataDaily.date < end_date.timestamp()
             ).scalar() or 0
 
         # Calculate the earnings per 1 million views
@@ -417,3 +430,24 @@ class DatabaseOperations:
             return earnings_per_million
         else:
             return None
+    
+    
+    
+    
+    
+    # MAINTENANCE OPERATIONS
+    @logger.catch(level="DEBUG")
+    def maintain_last_x_timestamps(self, table_class, x: int = 10):
+        """ Maintain the last x batches in the given table.
+        Args:
+            table_class (Base): The class representing the table to maintain the last x batches in.
+            x (int): The number of batches to keep.
+        """
+        with self.Session() as session:
+            # Get the last x unique batch_ids
+            subquery = session.query(table_class.timestamp).distinct().order_by(table_class.timestamp.desc()).limit(x).subquery()
+            
+            # Delete records not in the last x batches
+            session.query(table_class).filter(~table_class.timestamp.in_(subquery)).delete(synchronize_session=False)
+            session.commit()
+        logger.info(f"Kept only the last {x} batches in {table_class.__tablename__} table")
