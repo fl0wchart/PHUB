@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import io
 import os
+import random
+import time
 import pandas as pd
 import json
 from pprint import pprint
@@ -228,7 +230,7 @@ class Model(Account):
 
 
     @logger.catch
-    def get_all_videos_json(self):
+    def get_video_manager_json(self):
         """
         Get the JSON data of the model/channel/pornstar video manager for all videos. 
 
@@ -295,7 +297,7 @@ class Model(Account):
             List: List of dicts 
         """
 
-        def fetch_video_data(row):
+        def fetch_video_data(row, video_count: int):
             """
             Fetch the video data of each pornhub video (earnings and views timeseries).
 
@@ -308,6 +310,9 @@ class Model(Account):
             video_url = row['Site URL']
             title = row['TITLE']
             video_id = row['ID'] if 'ID' in row else None
+            # For accounts with many videos we need to slow down the requests
+            if video_count > 40:
+                time.sleep(random.randint(4, 7))
             res = self.client.call(consts.SINGLE_VIDEO_HISTORY_TEMPLATE.substitute(video_id = video_id, token = token), timeout = 10).text
             res = json.loads(res)
             
@@ -325,13 +330,13 @@ class Model(Account):
                             'type': 'view' if data_type == 'views' else 'earnings'
                         }
                         video_data_list.append(video_data)
+            
                         
             return video_data_list
         
-        
+        # Get the stats CSV file and prepare the filtered_ids DataFrame
         stats = self.get_stats_csv()
         filtered_ids = stats[stats['PORNHUB'] == 1][['ID', 'TITLE', 'Site URL']]
-
         # Get the mainhub page token
         page = self.client.call(consts.PORNHUB_GOTO_MAINHUB).text
         token = consts.re.token_mainhub(page)
@@ -339,15 +344,75 @@ class Model(Account):
         # Collect the video data using threads
         video_data_list = []
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future_to_row = {executor.submit(fetch_video_data, row): row for _, row in filtered_ids.iterrows()}
+            future_to_row = {executor.submit(fetch_video_data, row, len(filtered_ids)): row for _, row in filtered_ids.iterrows()}
             for future in concurrent.futures.as_completed(future_to_row):
                 if not future.cancelled():
                     video_data_list.extend(future.result())  # Extend the main list with the results to flatten it
-
+                
         
         self.client.db_ops.save_single_video_data(video_data_list, self.client.credentials['username'])
         return video_data_list
+    
+    
+    @logger.catch
+    def monitor(self) -> list[list[str]]:
+        """
+        Monitor the model/channel/pornstar video manager for any changes in the video data. Needs to be improved.
+        Can be run as a cron job.
+        Sends a message to the Telegram bot if any changes are detected.
+        
+        Returns:
+            list: List of lists containing the changes [key, viewkey, previous_key, current_key]
+        """
+        messages = {
+        'isCorrupt': "Video file corrupted",
+        'title': "Title updated",
+        'thumbSrc': "Thumbnail changed",
+        'isPendingModeration': "Moderation status changed",
+        'isMissingCoPerformersIds': "Co-performers' IDs missing changed",
+        'isFlagged': "Video was flagged or unflagged",
+        'isNotEligible': "Demonetization status changed",
+        'isPendingReview': "Review status changed",
+        'videoHasPendingTitle': "Title pending status changed",
+        'customUploadStatus': "Custom Thumbnail approved/disapproved",
+        'isFeatured': "Featured status changed",
+        'isFeaturedDate': "Featured date changed"
+        }
+        
+        # Keys to monitor
+        keys = ['isCorrupt', 'title', "thumbSrc", "isPendingModeration", "isMissingCoPerformersIds", "isFlagged", "isNotEligible", "isPendingReview", "videoHasPendingTitle", "customUploadStatus", "isFeatured", "isFeaturedDate"]
+        
+        self.get_video_manager_json()
+        rows = self.client.db_ops.get_monitor_data(self.client.credentials['username'])
+        current_data, previous_data = rows[0], rows[1]
 
+        # Create a dictionary with video IDs as keys for easy lookup
+        current_videos = {video['vkey']: video for video in current_data['videos']}
+        previous_videos = {video['vkey']: video for video in previous_data['videos']}
+        #pprint(current_videos)
+        
+        changes = []
+        changes_keys = []
+        # Compare videos based on their IDs, we skip the very first scrape 
+        for viewkey, current_video in current_videos.items():
+            if viewkey not in previous_videos:
+                continue
+            
+            previous_video = previous_videos.get(viewkey)
+            for key in keys:
+                current_key, previous_key = str(current_video.get(key, "none")), str(previous_video.get(key, "none"))
+                if current_key != previous_key and "video_converting" not in current_key and "video_converting" not in previous_key:
+                    changes.append(f'{messages[key]} for {self.client.credentials["username"]} for video \n\n https://pornhub.com/view_video.php?viewkey={viewkey}\n\n in {key}:\n\n  {previous_key} -> {current_key}\n\n')
+                    changes_keys.append([key, viewkey, previous_key, current_key])
+
+        if changes:
+            utils.telegram_message(" ".join(changes))
+            logger.warning("Changes detected")
+            logger.debug(changes_keys)
+            return changes_keys
+        else:
+            logger.warning("No changes detected")
+    
     
     @cached_property     
     def conversion_rate(self, year: int = None, month: int = None) -> Union[float, None]:
@@ -361,7 +426,7 @@ class Model(Account):
             
         conversion_rate = self.client.db_ops.get_conversion_rate_for_payout(year=year, month=month, username=self.client.credentials['username'])
         if conversion_rate is not None:
-            print(f"Conversion rate for {year}-{month} is: {conversion_rate}")
+            logger.success(f"Conversion rate for {year}-{month} is: {conversion_rate} $")
             return conversion_rate
         else:
             logger.error("Not enough data to calculate earnings per 1 million views.")

@@ -9,6 +9,7 @@ from sqlalchemy import Table, MetaData
 from sqlalchemy import func
 from sqlalchemy.sql import text
 from sqlalchemy.exc import IntegrityError
+import json
 
 from datetime import datetime, timedelta
 from typing import Union
@@ -432,13 +433,36 @@ class DatabaseOperations:
             return None
     
     
-    
-    
-    
+    @logger.catch(level="DEBUG")
+    def get_monitor_data(self, username: str) -> List[str]:
+        """
+        Fetch the JSON data strings from the two most recent video entries for a given user.
+
+        Args:
+            username (str): The username of the user whose video entries' data are to be fetched.
+        Returns:
+            List[str]: A list containing the JSON data strings from the two most recent video entries for the user.
+        Raises:
+            Exception: If there are less than two video entries for the user.
+        """
+        with self.Session() as session:
+            # Query the two most recent video entries for the given username
+            rows = session.query(VideoManager.data).filter(VideoManager.username == username).order_by(VideoManager.timestamp.desc()).limit(2).all()
+            
+            if len(rows) < 2:
+                logger.error(f"Not enough video data to compare for user {username}")
+                raise Exception("Not enough video data to compare")
+            
+            # Extract the JSON data strings from the query result
+            video_data_strings = [row[0] for row in rows]
+            
+            return video_data_strings
+            
+        
     # MAINTENANCE OPERATIONS
     @logger.catch(level="DEBUG")
     def maintain_last_x_timestamps(self, table_class, x: int = 10):
-        """ Maintain the last x batches in the given table.
+        """ Maintain the last x batches (timestamps) in the given table.
         Args:
             table_class (Base): The class representing the table to maintain the last x batches in.
             x (int): The number of batches to keep.
